@@ -16,68 +16,54 @@ def split_image():
         img_bytes = np.frombuffer(file.read(), np.uint8)
         img = cv2.imdecode(img_bytes, cv2.IMREAD_COLOR)
 
+        # --- PREPROCESS ---
         gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
         blur = cv2.GaussianBlur(gray, (3, 3), 0)
         _, thresh = cv2.threshold(blur, 180, 255, cv2.THRESH_BINARY_INV)
 
-        # Nối khung + chữ thành block hoàn chỉnh
+        # Nối chữ + khung thành block lớn
         kernel = cv2.getStructuringElement(cv2.MORPH_RECT, (25, 15))
         closed = cv2.morphologyEx(thresh, cv2.MORPH_CLOSE, kernel, iterations=2)
 
         contours, _ = cv2.findContours(closed, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-        blocks = []
 
+        blocks = []
         for c in contours:
             x, y, w, h = cv2.boundingRect(c)
-            if w > 300 and h > 200:
-                blocks.append((x, y, w, h))
 
-        # Sắp xếp top→bottom, left→right
-        blocks.sort(key=lambda b: (b[1], b[0]))
-
-        merged = []
-        row_blocks = []
-
-        for b in blocks:
-            x, y, w, h = b
-            if not row_blocks:
-                row_blocks.append(b)
+            # Bỏ contour nhỏ (đường chấm, đường kẻ)
+            if w < 300 or h < 300:
                 continue
 
-            prev_x, prev_y, prev_w, prev_h = row_blocks[-1]
+            # CARE có chiều cao lớn
+            if h < 600:  
+                continue
 
-            # Nếu cùng hàng
-            if abs(y - prev_y) < 100:
-                # Nếu gần nhau theo trục X → cùng CARE (Trước/Sau)
-                if abs(x - (prev_x + prev_w)) < 200:
-                    row_blocks.append(b)
-                else:
-                    # CARE mới
-                    merged.append(row_blocks)
-                    row_blocks = [b]
-            else:
-                merged.append(row_blocks)
-                row_blocks = [b]
+            # CARE đứng → tỷ lệ cao/rộng lớn
+            ratio = h / w
+            if ratio < 1.2:
+                continue
 
-        if row_blocks:
-            merged.append(row_blocks)
+            blocks.append((x, y, w, h))
 
-        # --- Xuất từng CARE block ---
+        # --- Chỉ giữ đúng 2 block → trái + phải ---
+        blocks.sort(key=lambda b: b[0])  # sort theo X
+
+        # Nếu dư hơn 2 thì chọn 2 block lớn nhất
+        if len(blocks) > 2:
+            blocks = sorted(blocks, key=lambda b: b[2] * b[3], reverse=True)[:2]
+            blocks.sort(key=lambda b: b[0])
+
+        # --- Xuất thành ZIP ---
         zip_buffer = io.BytesIO()
         with zipfile.ZipFile(zip_buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-            for i, group in enumerate(merged):
-                xs = [x for x, _, w, _ in group]
-                xe = [x + w for x, _, w, _ in group]
-                ys = [y for _, y, _, _ in group]
-                ye = [y + h for _, y, _, h in group]
+            for i, (x, y, w, h) in enumerate(blocks, start=1):
+                # Crop CARE + 250px dưới để lấy PCS
+                y_end = min(y + h + 250, img.shape[0])
+                crop = img[y:y_end, x:x + w]
 
-                x_min, x_max = min(xs), max(xe)
-                y_min, y_max = min(ys), max(ye) + 250  # CARE + PCS dưới
-                y_max = min(y_max, img.shape[0])
-
-                crop = img[y_min:y_max, x_min:x_max]
                 _, enc = cv2.imencode(".jpg", crop)
-                zf.writestr(f"care_{i+1}.jpg", enc.tobytes())
+                zf.writestr(f"care_{i}.jpg", enc.tobytes())
 
         zip_buffer.seek(0)
         return send_file(zip_buffer, as_attachment=True, download_name="care_blocks.zip")
