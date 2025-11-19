@@ -29,8 +29,17 @@ def split_image():
 
         for c in contours:
             x, y, w, h = cv2.boundingRect(c)
-            if w > 300 and h > 200:
-                blocks.append((x, y, w, h))
+            # Loại contour nhỏ như đường gạch, chữ lẻ
+            if w < 400 or h < 500:
+                continue
+
+            # CARE phải là block cao hơn block PCS
+            ratio = h / w
+            if ratio < 1.2:   # hình CARE phải cao hơn rộng
+                continue
+
+            blocks.append((x, y, w, h))
+
 
         # Sắp xếp top→bottom, left→right
         blocks.sort(key=lambda b: (b[1], b[0]))
@@ -47,7 +56,7 @@ def split_image():
             prev_x, prev_y, prev_w, prev_h = row_blocks[-1]
 
             # Nếu cùng hàng
-            if abs(y - prev_y) < 100:
+            if abs(y - prev_y) < 200:
                 # Nếu gần nhau theo trục X → cùng CARE (Trước/Sau)
                 if abs(x - (prev_x + prev_w)) < 200:
                     row_blocks.append(b)
