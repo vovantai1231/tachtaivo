@@ -29,7 +29,7 @@ def split_image():
 
         for c in contours:
             x, y, w, h = cv2.boundingRect(c)
-            if w > 250 and h > 200:
+            if w > 250 and h > 150:
                 blocks.append((x, y, w, h))
 
         # Sắp xếp top→bottom, left→right
